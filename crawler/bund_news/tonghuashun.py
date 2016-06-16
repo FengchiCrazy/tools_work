@@ -9,10 +9,7 @@ import time
 reload(sys)
 sys.setdefaultencoding('utf8')
 
-r_host      = '10.4.16.133'
-r_user      = 'root'
-r_passwd  = 'renren123'
-r_name      = 'test1'
+
 
 start_url = "http://bond.10jqka.com.cn/zqzx_list/index_130.shtml"
 news_data_name = 'news_data/tonghuashun_announcement_bond_' + time.strftime('%Y_%m_%d_%H_%M_%S',time.localtime())

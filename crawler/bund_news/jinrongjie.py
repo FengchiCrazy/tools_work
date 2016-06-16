@@ -10,8 +10,6 @@ import datetime
 reload(sys)
 sys.setdefaultencoding('utf8')
 
-
-
 # date format 'YYYY-mm-dd'
 start_date_str = '2016-01-01'
 end_date_str = datetime.datetime.now().strftime("%Y-%m-%d")

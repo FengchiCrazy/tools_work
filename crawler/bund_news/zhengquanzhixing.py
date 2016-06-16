@@ -9,11 +9,6 @@ import time
 reload(sys)
 sys.setdefaultencoding('utf8')
 
-r_host      = '10.4.16.133'
-r_user      = 'root'
-r_passwd  = 'renren123'
-r_name      = 'test1'
-
 news_data_name = 'news_data/zhengquanzhixing_announcement_bond_' + time.strftime('%Y_%m_%d_%H_%M_%S',time.localtime())
 # print news_data_name
 f = open(news_data_name, 'w')
