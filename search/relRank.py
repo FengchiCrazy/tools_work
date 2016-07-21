@@ -14,75 +14,92 @@ class correlationRank(publicOpinionBase):
     
     def __init__(self):
         super(correlationRank, self).__init__()
-        self.logger = self._getLogger('CORR.log')
+        #self.user_result = {}
+        self.user_words_cut = {}
+        self.MAX_KEYWORDS = 100
+        self.shortNamesFilterSet = self.getFilterSetFromFile(self.dirpath + os.sep + 'data' + os.sep + 'ShortNameNeedFilter.dic')
+        self.userTable = "news_user_keyword"
+        self.bondTable = "bond_info"
+        self.companyTable = "pub_institutioninfo"
+        self.correlationTable = "news_correlation_temp"
+        self.userEmailTable = "news_user_email"
+
+    def getFilterSetFromFile(self, filepath):
+        filter_file = open(filepath, 'r')
+        ret = set()
+        for line_ in filter_file:
+            word = line_.strip().decode('utf8')
+            ret.add(word)
+        return ret
         
+    def getUserName(self,uid):
+        username_sql = "select user_name from news_subscibe where uid = %s " % uid
+        self.cursor.execute(username_sql)
+        username_res = self.cursor.fetchall()
+        try:
+            un_ret = username_res[0][0]
+        except:
+            un_ret = None
+        return un_ret
 
-    def getCompaniesAndBunds(self, uid):
-        inst_sql = "select distinct institutionid from news_subscibe where uid = %s order by institutionid " % uid
-        self.cursor.execute(inst_sql)
-        inst_res = self.cursor.fetchall()
-        inst_res = [x[0] for x in inst_res if x is not None]
-        
-        keyword_sql = "select distinct key_word from news_subscibe where uid = %s " % uid
-        self.cursor.execute(keyword_sql)
-        keyword_res = self.cursor.fetchall()
-        # use for utf8
-        #keyword_list = [unicode(x[0]) for x in keyword_res if x is not None]
-        keyword_list = [x[0] for x in keyword_res if x is not None and x[0] is not None]
-        
-        ret = []
-    
-        #print inst_res
-        for inst in inst_res:
-            item = {'company':{}, 'bond':[]}
-            if inst is None:
-                continue
-            company_sql = "select institutionid, shortname, fullname, category, registeraddress, officeaddress, mainbusiness, businessscope " \
-                "from pub_institutioninfo where institutionid = %s" % inst
-            self.cursor.execute(company_sql)
-            try:
-                company = self.cursor.fetchall()[0]
-                # use for utf8
-                #item['company']['shortname']       = unicode(company[1])
-                #item['company']['fullname']        = unicode(company[2])
-                #item['company']['category']        = unicode(company[3])
-                #item['company']['registeraddress'] = unicode(company[4])
-                #item['company']['officeaddress']   = unicode(company[5])
-                #item['company']['mainbusiness']    = unicode(company[6])
-                #item['company']['businessscope']   = unicode(company[7])
+    def getFullNamesOfBondByUserID(self, uid):
+        try:
+            sql = "SELECT DISTINCT B.fullname FROM %s A, %s B WHERE A.uid = %s AND A.institutionid  = B.institutionid;" \
+                    %(self.userTable, self.bondTable, uid)
+            self.cursor.execute(sql)
+            res = self.cursor.fetchall()
+            kws = [x[0] for x in res if x[0] is not None]
+            return kws
+        except Exception,e:
+            self.logger.error(str(e))
+            self.logger.error("Fail to get fullname of bond by userID")       
 
-                item['company']['shortname']       = None if company[1] is None else company[1]
-                item['company']['fullname']        = None if company[2] is None else company[2]
-                item['company']['category']        = None if company[3] is None else company[3]
-                item['company']['registeraddress'] = None if company[4] is None else company[4]
-                item['company']['officeaddress']   = None if company[5] is None else company[5]
-                item['company']['mainbusiness']    = None if company[6] is None else company[6]
-                item['company']['businessscope']   = None if company[7] is None else company[7]
-            except:
-                print "ERROR in pub_institutioninfo " + str(inst)
-                continue
-            
-            bond_sql = "select shortname, fullname from bond_info where institutionid = %s " % inst
-            self.cursor.execute(bond_sql)
-            try:
-                bonds = self.cursor.fetchall()
-                for bond in bonds:
-                    bond_dic = {}
-                    # use for utf8
-                    #bond_dic['shortname'] = unicode(bond[0])
-                    #bond_dic['fullname']  = unicode(bond[1])
+    def getFullNamesOfCompanyByUserID(self, uid):
+        try:
+            sql = "SELECT DISTINCT B.fullname FROM %s A, %s B WHERE A.uid = %s AND A.institutionid  = B.institutionid;" \
+                    %(self.userTable, self.companyTable, uid)
+            self.cursor.execute(sql)
+            res = self.cursor.fetchall()
+            kws = [x[0] for x in res if x[0] is not None]
+            return kws
+        except Exception,e:
+            self.logger.error(str(e))
+            self.logger.error("Fail to get fullname of company by userID")       
 
-                    bond_dic['shortname'] = None if bond[0] is None else bond[0]
-                    bond_dic['fullname']  = None if bond[1] is None else bond[1]
+    def getShortNamesOfBondByUserID(self, uid):
+        try:
+            sql = "SELECT DISTINCT B.shortname FROM %s A, %s B WHERE A.uid = %s AND A.institutionid  = B.institutionid;" \
+                    %(self.userTable, self.bondTable, uid)
+            self.cursor.execute(sql)
+            res = self.cursor.fetchall()
+            kws = [x[0] for x in res if x[0] is not None]
+            return kws
+        except Exception,e:
+            self.logger.error(str(e))
+            self.logger.error("Fail to get shortname of bond by userID")
 
-                    item['bond'].append(bond_dic)
-            except:
-                print "ERROR in bond_info where institutionid = %s" % inst
-                continue
+    def getShortNamesOfCompanyByUserID(self, uid):
+        try:
+            sql = "SELECT DISTINCT B.shortname FROM %s A, %s B WHERE A.uid = %s AND A.institutionid  = B.institutionid;" \
+                    %(self.userTable, self.companyTable, uid)
+            self.cursor.execute(sql)
+            res = self.cursor.fetchall()
+            kws = [x[0] for x in res if x[0] is not None]
+            return kws
+        except Exception,e:
+            self.logger.error(str(e))
+            self.logger.error("Fail to get shortname of company by userID")
 
-            ret.append(item)
-            
-        return ret, keyword_list
+    def getKeywordByUserID(self, uid):
+        try:
+            sql = "select distinct keyword from %s where uid=%s" %(self.userTable, uid)
+            self.cursor.execute(sql)
+            res = self.cursor.fetchall()
+            kws = [x[0] for x in res if x[0] is not None]
+            return kws
+        except Exception,e:
+            self.logger.error(str(e))
+            self.logger.error("Fail to get keyword by userID")
             
     def feedsPush(self, result):
         """result 数据格式list, 里面每一条结果为一个tuple。tuple中的元素顺序为(uid, notice_time, news_id, source_flag, score)
@@ -92,101 +109,77 @@ class correlationRank(publicOpinionBase):
                 # 判断在数据库中是否已经存在
                 news_id = res[2]
                 if news_id[0] == 'N':
-                    sql_exists = "select * from news_correlation where uid = %s and news_id = %s and source_flag = %s" % (res[0], news_id[1:], res[3])
+                    sql_exists = "select * from %s where uid = %s and news_id = %s and source_flag = %s" % (self.correlationTable, res[0], news_id[1:], res[3])
                     self.cursor.execute(sql_exists)
                     res_exists = self.cursor.fetchall()
 
                     if len(res_exists) == 0:
-                        sql = "insert into news_correlation (uid, notice_time, news_id, source_flag, score, neg_sentiment) values" \
-                               "(%s, '%s', %s, %s, %f, %f)" %(res[0], res[1], news_id[1:], res[3], res[4], res[5])
+                        sql = "insert into %s (uid, notice_time, news_id, source_flag, score, neg_sentiment) values" \
+                               "(%s, '%s', %s, %s, %f, %f)" %(self.correlationTable, res[0], res[1], news_id[1:], res[3], res[4], res[5])
                         self.cursor.execute(sql)
-                        self.logger.info("插入表 news_correlation\t" + ' '.join([str(i) for i in res]))
+                        self.logger.info("插入表 %s\t" % self.correlationTable + ' '.join([str(i) for i in res]))
             
             self.conn.commit()
         except Exception,e:
             self.logger.error(str(e))
 
-    def createQueryByKeywords(self, info, keywords, dateStart, dateEnd):
-        '''
-        info      : list 
-        keywords  : list of keywords
-        '''
-        #step1:timequery 
-        #timequeryStr = "notice_time:>='%s' notice_time:<='%s'" %(dateStart.strftime('%Y%m%d%H%M%S'),\
-        #                                                         dateEnd.strftime('%Y%m%d%H%M%S'))
-        #timequery    = self.parse_search(timequeryStr)
+    def createQuery(self, userID, dateStart, dateEnd):
         timequery =DateRange("notice_time", dateStart, dateEnd, startexcl=False, endexcl=False, boost=0)
-        platformquery=self.parse_search("platform:1")
+        platformquery=Term("platform",1)
         platformquery.boost = 0
-
-        #step2:keyword query
+        keywords = self.getKeywordByUserID(userID)
+        kwquery  = Or([ Term("content",x) for x in keywords])
         
-        #kwqueryStrPart = '~|'.join(keywords) + '~'
-        #kwqueryStr = "main_body:%s | product_info:%s | content:%s" %(kwqueryStrPart,kwqueryStrPart,kwqueryStrPart)
-        #kwquery_    = self.parse_search(kwqueryStr)
-        kwqueryStrPart = '|'.join(keywords)
-        kwqueryStr = "main_body:%s" %(kwqueryStrPart)
-        kwquery    = self.parse_search(kwqueryStr)
-        #step3:main query
-        companys = []
-        bonds    = []
-        business = []
-        location = []
-        for item in info:
-            bonditems    = item['bond']    #list
-            comShortName = item['company']['shortname']     
-            #comFullName  = item['company']['fullname']          
-            #comCate      = item['company']['category']           
-            #comAdd       = item['company']['registeraddress']
-            #comCadd      = item['company']['officeaddress']  
-            #comBus       = item['company']['mainbusiness']  
-            #comBusc      = item['company']['businessscope']  
-            if comShortName is not None :companys.append(comShortName)
-            #if comFullName is not None :companys.append(comFullName)
-            #if comBus is not None :business.append(comBus)
-            #if comBusc is not None :business.append(comBusc)
-            #if comAdd is not None :location.append(comAdd)
-            #if comCadd is not None :location.append(comCadd)
-            for line in bonditems:
-                #line {'fullname':, 'shortname':}
-                #bondfullname = line['fullname'] 
-                bondshortname= line['shortname']
-                #if bondfullname is not None : bonds.append(bondfullname)
-                if bondshortname is not None :bonds.append(bondshortname)
+        shortNameCom = self.getShortNamesOfCompanyByUserID(userID)
+        shortNameCom = [name for name in shortNameCom if name not in self.shortNamesFilterSet]
+        if not shortNameCom:
+            shortNameComQuery = NullQuery()
+        else:    
+            shortNameComQuery = Or([Term("content",x) for x in shortNameCom])
 
-        companyqueryStr = '|'.join([x.decode('utf8') for x in companys])
-        bondsqueryStr = '|'.join([x.decode('utf8') for x in  bonds])
-        #businessqueryStr = '|'.join([x.decode('utf8') for x in business])
-        #locationqueryStr = '|'.join( [x.decode('utf8') for x in location])
-        
-        contentQueryStr = "content:%s|%s" %(companyqueryStr, bondsqueryStr)    
-        contentQuery    = self.parse_search(contentQueryStr)
-        #mainbodyQueryStr = "main_body:%s" %companyqueryStr
-        #mainbodyQuery    = self.parse_search(mainbodyQueryStr)
-        #productQueryStr  = "product_info:%s" %(bondsqueryStr)
-        #productQuery     = self.parse_search(productQueryStr)
+        fullNameCom = self.getFullNamesOfCompanyByUserID(userID)
+        fullNameComQuery = Or([Term("content",x) for x in fullNameCom])
 
-        mainQuery = contentQuery
+        if len(keywords) > self.MAX_KEYWORDS:
+            mainQuery = Or([shortNameComQuery, fullNameComQuery])
+        else:
+            shortNameBond = self.getShortNamesOfBondByUserID(userID)
+            shortNameBondQuery = Or([Term("content",x) for x in shortNameBond])
+            #fullNameBond = self.getFullNamesOfBondByUserID(userID)
+            #fullNameBondQuery = Or([Term("content",x) for x in fullNameBond])
+            mainQuery = Or([
+                shortNameComQuery,
+                shortNameBondQuery,
+                fullNameComQuery,
+                #fullNameBondQuery,
+                ])
 
-        #query combine
         kwquery.boost = 1.2
         query = AndMaybe(AndMaybe(timequery&platformquery, kwquery), mainQuery)
         return query
+       
+    def readFileCut(self, filename='CUT_WORDS_FILE'):
+        filepath = self.dirpath + os.sep + 'data' + os.sep + filename
+        lines = open(filepath).readlines()
+        for line in lines:
+            line_list = line.strip().split('||')
+            
+            res = {}
+            user_name = unicode(line_list[0])
+            res['key_word']   = [[unicode(x) for x in seg.split(' ')] for seg in line_list[1].split('\t')]
+            res['short_name'] = [[unicode(x) for x in seg.split(' ')] for seg in line_list[2].split('\t')]
+            res['short_name_bond'] = [[unicode(x) for x in seg.split(' ')] for seg in line_list[3].split('\t')]
+            res['full_name']  = [[unicode(x) for x in seg.split(' ')] for seg in line_list[4].split('\t')]
+            res['full_name_bond']  = [[unicode(x) for x in seg.split(' ')] for seg in line_list[5].split('\t')]
+            
+            self.user_words_cut[user_name] = res
 
-    def searchFeedsByUserID(self, usrID, dateStart, dateEnd):
+    def searchFeedsByUserID(self, userID, dateStart, dateEnd):
         weighting = scoring.BM25F
         searcher = self.index.searcher(weighting=weighting)
+        self.logger.info("user:%s "%(userID))
+        query = self.createQuery(userID, dateStart, dateEnd)
 
-        #file_path = self.dirpath + os.sep + 'data' + os.sep + 'pickle' + os.sep
-        #pickleFileName = "%spickle_%s"%(file_path, usrID)
-        #if os.path.exists(pickleFileName):
-        #    cp = pickle.load(open(pickleFileName))
-        #    info = cp[0]
-        #    kws = cp[1]
-        #else:
-        #    pickle.dump([info, kws], open(pickleFileName,'w'))
-        info, kws = self.getCompaniesAndBunds(usrID)
-        query     = self.createQueryByKeywords(info, kws, dateStart, dateEnd)
         f1=ScoreFacet()
         f2=FieldFacet("sentiment",reverse=True)
         f3=FieldFacet("notice_time",reverse=True)
@@ -212,13 +205,13 @@ class correlationRank(publicOpinionBase):
             source_flag = hit.get('platform', None)
             score = abs(hit.score[0])
             sentiment = hit.get('sentiment',0.0)
-            insert_result.append((usrID, time, news_id,source_flag, score, sentiment))
+            insert_result.append((userID, time, news_id,source_flag, score, sentiment))
             
         self.feedsPush(insert_result)
 
     def getUserID(self):
         try:
-            sql = "select distinct(uid) from  news_subscibe where uid<9800"
+            sql = "select distinct(uid) from %s where uid is not null" %(self.userEmailTable)
             self.cursor.execute(sql)
             res = self.cursor.fetchall()
             users = [x[0] for x in res]
@@ -228,9 +221,13 @@ class correlationRank(publicOpinionBase):
             return []
 
     def searchFeeds(self, dateStart=None, dateEnd=None):
+        logname = 'corr'+os.sep+'corr_'+datetime.datetime.now().strftime('%Y-%m-%d-%H') + '.log'
+        self.logger = self._getLogger(logname)
+
         if dateStart is None or dateEnd is None:
             dateStart, dateEnd, am = self._getDatetimeRange(datetime.datetime.now())
 
+        #self.readFileCut()
         userIDs = self.getUserID()
         for userID in userIDs:
             self.searchFeedsByUserID(userID, dateStart, dateEnd)
@@ -240,8 +237,8 @@ def runDaily():
     model.searchFeeds()
 
 def runHistory():
-    dateStart = datetime.datetime.strptime('201607050730','%Y%m%d%H%M%S')
-    dateEnd   = datetime.datetime.strptime('201607051730','%Y%m%d%H%M%S')
+    dateStart = datetime.datetime.strptime('201607111730','%Y%m%d%H%M%S')
+    dateEnd   = datetime.datetime.strptime('201607120830','%Y%m%d%H%M%S')
     model = correlationRank()
     model.searchFeeds(dateStart, dateEnd)
 
@@ -249,5 +246,5 @@ if __name__ == '__main__':
     import sys
     reload(sys)
     sys.setdefaultencoding('utf8')
-    runDaily()
-    #runHistory()
+    #runDaily()
+    runHistory()

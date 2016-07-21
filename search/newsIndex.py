@@ -12,13 +12,14 @@ from jieba.analyse import ChineseAnalyzer
 from whoosh.qparser import plugins
 from whoosh.sorting import *
 import datetime
-import MySQLdb
+from whoosh.formats import Frequency
 import pdb
 import logging
+from dbConnect import dataBase
 
 STOPWORDS = ['\r','\n','\t',' ','\r\n']
 
-class publicOpinionBase(object):
+class publicOpinionBase(dataBase):
     '''
     schema:
         mysqlID  : 文档在mysql中的唯一标识，前面加一个字母标识符，'N'表示新闻类，'W'表示微信类
@@ -33,12 +34,12 @@ class publicOpinionBase(object):
         location : 地域
         main_body: 主体
         product_info : 债券信息
+        nickName     : 微博用户昵称
+        keyword      : 微博抓取关键词
 
     '''
     def __init__(self):    
-        self.__connect()
-        dirpath                 = os.path.split(os.path.realpath(__file__))[0]
-        self.dirpath            = os.path.dirname(dirpath)
+        dataBase.__init__(self)
         self.searchEnginePath   = "search_engine"
         self.indexName          = "publicOpinion" 
         self.analyzer           = self.__getAnalyzer()
@@ -46,43 +47,29 @@ class publicOpinionBase(object):
         self.updateNight        = '17:30'
         self.DATE_FORMAT        = "%Y-%m-%d"
         self.TIME_FORMAT        = "%Y-%m-%d %H:%M"
+        self.tableNews          = "news_crawl_temp"
+        self.tableWeixin        = "news_weixin3"
+        self.tableWeibo         = "weibo_dynamic_info"
         self.schema             = Schema(mysqlID=ID(stored=True),                                           \
                                          platform=NUMERIC(int, 32, stored=True),                            \
                                          title=TEXT(stored=True, analyzer=self.analyzer, field_boost=1.0),  \
                                          url=ID(stored=True),                                               \
-                                         content=TEXT(stored=True, analyzer=self.analyzer),                 \
+                                         content=TEXT(analyzer=self.analyzer, vector=Frequency()),                 \
                                          notice_time=DATETIME(stored=True),                \
                                          source=TEXT(stored=True, analyzer=self.analyzer),                  \
                                          feed_type=NUMERIC(int, 32, stored=True),                           \
                                          sentiment=NUMERIC(float, 64, stored=True, field_boost=0.5),        \
                                          location=TEXT(stored=True, analyzer=self.analyzer, field_boost=0.2),               \
                                          main_body=TEXT(stored=True, analyzer=self.analyzer, field_boost=1.2),              \
-                                         product_info=TEXT(stored=True, analyzer=self.analyzer, field_boost=1.1)            \
+                                         product_info=TEXT(stored=True, analyzer=self.analyzer, field_boost=1.1),            \
+                                         nickName=TEXT(stored=True, analyzer=self.analyzer), \
+                                         keyword =TEXT(stored=True, analyzer=self.analyzer) \
                                          )
         self.__getIndex()       
-        #self.logger             = self._getLogger('SEARCH_ENGINE.log')
 
-    def _getLogger(self, filename):
-        level = logging.DEBUG
-        file_path = self.dirpath + os.sep + 'data' + os.sep + filename
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s', datefmt='%a, %d %b %Y %H:%M:%S')
-
-        logger = logging.getLogger()
-        logger.setLevel(level)
-    
-        fh = logging.FileHandler(file_path, mode = 'a')
-        fh.setLevel(level)
-        fh.setFormatter(formatter)
-        logger.addHandler(fh)
-
-        ch = logging.StreamHandler()
-        ch.setLevel(level)
-        ch.setFormatter(formatter)
-        logger.addHandler(ch)
-        
-        return logger
-        
+       
     def __getAnalyzer(self): 
+
         stopwords = []
         stopwordsFile = open(self.dirpath+os.sep+'data/STOPWORDS').readlines()
         siz = len(stopwordsFile)
@@ -102,27 +89,10 @@ class publicOpinionBase(object):
         else:
             self.index = create_in(path, self.schema, self.indexName)
     
-    def __connect(self):
-        conn = MySQLdb.connect(
-            host   = '127.0.0.1',
-            user   = 'root',
-            passwd = '',
-            db     = 'test',
-            charset= 'utf8'
-        )
-        cursor = conn.cursor()
-        conn.set_character_set('utf8')
-        cursor.execute('SET NAMES utf8;')
-        cursor.execute('SET CHARACTER SET utf8;')
-        cursor.execute('SET character_set_connection=utf8;')
-        self.conn = conn
-        self.cursor = cursor
-        self.tableNews  = "news_crawl_temp"
-        self.tableWeixin = "news_weixin3"
-
     def addDocumentsFromMysql(self, start='2016-06-30', end=datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')):
         
-        self.logger = self._getLogger('SEARCH_ENGINE.log')
+        logname ='search_engine' + os.sep + 'search_'+datetime.datetime.now().strftime('%Y-%m-%d-%H') + '.log'
+        self.logger = self._getLogger(logname)
         writer = self.index.writer()
         reader = self.index.reader()
         #step1: source from news 
@@ -224,6 +194,46 @@ class publicOpinionBase(object):
             except Exception,e:
                 self.logger.error("ERROR:%s"%(str(e)))
                 continue
+
+
+        #step3: source from weibo
+        sql = "select   id,     \
+                        nickName,       \
+                        content,         \
+                        detailUrl,   \
+                        publishTime,   \
+                        keyword    \
+                        from %s  \
+                        where publishTime>='%s'  \
+                        and publishTime<='%s'    \
+                        order by publishTime desc" %(self.tableWeibo, start, end)
+        self.cursor.execute(sql)
+        documents = self.cursor.fetchall()
+        for doc in documents:
+            try:
+                mysqlID = 'B'+str(doc[0])
+                if mysqlID in id_terms:
+                    continue
+                else:
+                    id_terms.add(mysqlID)
+                path    = unicode(doc[3]) if doc[3] is not None else None
+                content = unicode(doc[2]) if doc[2] is not None else None
+                nickName= unicode(doc[1]) if doc[1] is not None else None
+                keyword = unicode(doc[5]) if doc[5] is not None else None
+                writer.add_document(
+                    mysqlID = mysqlID,
+                    platform= 3,
+                    url     = path,
+                    content = content,
+                    notice_time = doc[4],
+                    keyword     = keyword,
+                    nickName    = nickName
+                    )
+                self.logger.info("Insert record : %s"%mysqlID)
+            except Exception,e:
+                self.logger.error("ERROR:%s"%(str(e)))
+                continue
+
         writer.commit()
             
     def parse_search(self, search_string):
@@ -282,26 +292,22 @@ class publicOpinionBase(object):
 
     def search(self):
         searcher = self.index.searcher()
-        kw1="notice_time:>='20160701000000' notice_time:<='20160702100000' & platform:1"
+        kw1="notice_time:>='20160601000000' notice_time:<='20160702100000' & platform:3"
         #pdb.sezhutit_trace()
         #keyword = "风险&控股 & notice_time:>='2016-06-20' notice_time:<='2016-06-27' &~title:市场 &~title:银监会"
         #kw2 = "title:上市 | title:招标 | title:缴款 | title:到期"
-        zhuti = "08北辰债~"
-        diyu  = "中国|北京|重庆"
-        zhaiquan = "易方达01~|博时09~"
-        kw2 = "main_body:春和集团|天威称集团"
         qu = self.parse_search(kw1)
-        qu2 =self.parse_search(kw2)
+        qu2 = Term("content","能源")
 
         #f1=FieldFacet("notice_time",reverse=True)
         f1=ScoreFacet()
         f2=FieldFacet("sentiment",reverse=True)
         f3=FieldFacet("notice_time",reverse=True)
         facet = MultiFacet([f1,f2,f3])
-        results = searcher.search(qu&qu2, limit=100, sortedby=facet)
+        results = searcher.search(qu & qu2, limit=100, sortedby=facet)
         for hit in results:
-            title = hit.get('title', None).strip().decode('latin-1').encode('utf8','ignore')
-            url   = hit.get('url', None).strip().decode('latin-1').encode('utf8','ignore')
+            title = hit.get('title', '').strip().decode('latin-1').encode('utf8','ignore')
+            url   = hit.get('url', '').strip().decode('latin-1').encode('utf8','ignore')
             time  = hit.get('notice_time', None)
             print "%s\t%s\t%s\t%s\t%s" %(title, url, time, hit.score, hit.get('sentiment',None))
 
@@ -321,9 +327,14 @@ def runHistory():
     dateStart = "2016-01-01"
     model.addDocumentsFromMysql(dateStart, dateEnd)
     #model.search()
+
+def search():
+    model = publicOpinionBase()
+    model.search()
  
 if __name__ == '__main__':
     reload(sys)
     sys.setdefaultencoding('utf8')
-    runDaily()
-    #runHistory()
+    #runDaily()
+    runHistory()
+    #search()

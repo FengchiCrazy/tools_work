@@ -1,7 +1,7 @@
 #coding:utf-8
 #from __future__ import unicode_literals
 import datetime
-from whoosh.query import DateRange, Every
+from whoosh.query import *
 import numpy as np
 import pdb
 from newsIndex import publicOpinionBase
@@ -75,7 +75,8 @@ class publicOpinionHotNewsRank(publicOpinionBase):
         
         searcher = self.index.searcher()
         timeQuery = DateRange("notice_time", dateStart, dateEnd)
-        srcInfo   = searcher.search(timeQuery)
+        platformquery=Not(Term("platform",3) | Term("feed_type",2))
+        srcInfo   = searcher.search(timeQuery & platformquery)
         #step1: get the documents ids of latest news
         docIDs_    = list(srcInfo.docs())
         docIDs   = []
@@ -384,6 +385,7 @@ class publicOpinionHotNewsRank(publicOpinionBase):
     def docRankByHots(self, dateStart, dateEnd, am=True): 
 
         termWeights = self.hotTermsDetector(dateEnd, am)
+
         printInfo = ''
         for term, score in termWeights:
             printInfo += '%s:%s\t'%(term, score)
@@ -392,7 +394,9 @@ class publicOpinionHotNewsRank(publicOpinionBase):
             
         searcher  = self.index.searcher()
         timeQuery = DateRange("notice_time", dateStart, dateEnd)
-        srcInfo   = searcher.search(timeQuery, limit=1000)
+
+        platformquery=Not(Term("platform",3) | Term("feed_type",2))
+        srcInfo   = searcher.search(timeQuery&platformquery, limit=1000)
         docIDs    = list(srcInfo.docs())
         docWeights = dict([(x , 0.0) for x in docIDs])
         #计算文档的热度分数值：目前由热度词分数求和得到
@@ -448,7 +452,7 @@ class publicOpinionHotNewsRank(publicOpinionBase):
             dic['score'] = weight
             dic['hotscore'] = docWeights[docnum]
             res.append(dic)
-            self.logger.info("%.02f\t%s\t%s\t%.02f\t%.02f" %(dic['score'], dic['title'], dic['notice_time'] , dic['sentiment'], dic['hotscore']))
+            self.logger.info("%.02f\t%s\t%s\t%s\t%.02f\t%.02f" %(dic['score'], dic['title'], dic['notice_time'] ,dic['url'], dic['sentiment'], dic['hotscore']))
 
         return res
 
