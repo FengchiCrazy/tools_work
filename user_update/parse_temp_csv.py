@@ -74,7 +74,7 @@ def init_data_csv(datapath='data'):
         
         
 
-def parse_temp_to_data(temppath='temp', datapath='data', errorpath='error', logpath='log'):
+def parse_temp_to_data(temppath='temp', datapath='data', errorpath='error'):
     """将temp文件夹下的数据读入，添加进mysql并把记录写入data文件夹下的记录中。并会把写入记录时的异常情况写入log
 
        temp文件夹下会有三种文件类型，分为keyword, email, manager，在文档中分别有相应的命名格式。如果文件命名有误，会跳过这一文件，并写入log
@@ -92,8 +92,6 @@ def parse_temp_to_data(temppath='temp', datapath='data', errorpath='error', logp
 
     if not os.path.exists(errorpath):
         os.mkdir(errorpath)
-    if not os.path.exists(logpath):
-        os.mkdir(logpath)
 
     if len(temp_file_list) == 0:
         raise ValueError("There must be csv files under '%s' folder" %temppath)
@@ -115,8 +113,10 @@ def parse_temp_to_data(temppath='temp', datapath='data', errorpath='error', logp
         file_type    = tf_split[1]
         date         = tf_split[2]
 
+        # if temp file's type is wrong, copy it to error folder
         if file_type not in file_types:
             logger.info('temp/%s 文件命名错误，请检查。该文件内容将会被跳过' % temp_file)
+            open('%s%s%s'% (errorpath, os.sep, temp_file), 'w').write(tf.read())
             continue
         
         # find the data file of temp file. If not, create new file
@@ -179,7 +179,10 @@ def handle_email_table(uid, user_name, contents):
         operation = line[0].upper()
         recipient = line[1]
         email     = line[2]
-        type_     = line[3]
+        if len(line) >= 4:
+            type_ = line[3]
+        else:
+            type_ = 'user'
 
         if operation == ADD_OPERATION:
             sql = "insert into news_user_email (uid, username, recipient, email, type) values"\
@@ -207,7 +210,7 @@ def handle_email_table(uid, user_name, contents):
 
         rt_contents.append(line_.strip())
 
-    conn.commit()
+    #conn.commit()
     return rt_contents, error_contents
 
 def handle_keyword_table(uid, user_name, contents):
@@ -234,12 +237,16 @@ def handle_keyword_table(uid, user_name, contents):
         operation     = line[0].upper()
         key_word      = line[1]
         type_         = line[2]
-        symbol        = line[3] if line[3] is not '' else 'null'
+        # ensure the csv has enough ',' if keyword is all company
+        if len(line) >= 4:
+            symbol    = line[3] if line[3] is not '' else 'null'
+        else:
+            symbol    = 'null'
 
         # will not occour in the regular file but could be used as double check of the record
         # Especially useful when checking the record from old database
         check_flag = False
-        if len(line) == 5:
+        if len(line) >= 5:
             check_flag    = True
             institutionid = line[4]
         else:
@@ -330,7 +337,7 @@ def handle_keyword_table(uid, user_name, contents):
 
         rt_contents.append(','.join([operation, key_word, type_, symbol, securityid, str(res_institutionid)]))
 
-    conn.commit()
+    #conn.commit()
     return rt_contents, error_contents
 
 def handle_manager_table(uid, user_name, contents):
@@ -347,7 +354,34 @@ def handle_manager_table(uid, user_name, contents):
     for line_ in contents:
         line = line_.strip().split(',')
         operation = line[0].upper()
-        managerid = line[1]
+        is_managerid = True
+        try:
+            managerid = int(line[1])
+        except:
+            is_managerid = False
+            manager_name = line[1]
+
+        if is_managerid == False:
+            sql_mid = "select id, name from b2_user_assist_manager where name = '%s'" % manager_name
+            cursor.execute(sql_mid)
+            res_mid = cursor.fetchall()
+            if len(res_mid) > 0 and res_mid[0][0] is not None:
+                managerid = res_mid[0][0]
+            else:
+                logger.error('Error manager name-%s of username:%s' % (manager_name, user_name))
+                error_contents.append(line_.strip() + ',Error manager name')
+                continue
+        else:
+            sql_mn = "select id, name from b2_user_assist_manager where id = %s" % managerid 
+            cursor.execute(sql_mn)
+            res_mn = cursor.fetchall()
+            if len(res_mn) > 0 and res_mn[0][1] is not None:
+                manager_name = res_mn[0][1].encode('utf8')
+            else:
+                logger.error('Error manager id-%s of username:%s' % (managerid, user_name))
+                error_contents.append(line_.strip() + ',Error manager id')
+                continue
+             
 
         if operation == ADD_OPERATION:
             sql = "insert into news_user_manager (uid, username, managerid) values( %s, '%s', %s)" % (uid, user_name, managerid)
@@ -373,15 +407,15 @@ def handle_manager_table(uid, user_name, contents):
             error_contents.append(line_.strip() + ',Error operation')
             continue
 
-        rt_contents.append(line_.strip())
+        rt_contents.append(','.join((operation, str(managerid), manager_name)))
 
     conn.commit()
     return rt_contents, error_contents
-            
 
 if __name__ == '__main__':
     #init_data_csv()
     #parse_temp_to_data(temppath='temp.bak')
     parse_temp_to_data(temppath='temp')
+
 
     
