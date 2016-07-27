@@ -24,20 +24,6 @@ cursor.execute('SET NAMES utf8;')
 cursor.execute('SET CHARACTER SET utf8;')
 cursor.execute('SET character_set_connection=utf8;')
 
-def to_str(string):
-    if isinstance(string, unicode):
-        value = string.encode('utf8')
-    else:
-        value = string
-    return value
-
-def to_unicode(string):
-    if isinstance(string, str):
-        value = string.decode('utf8')
-    else:
-        value = string
-    return value
-
 def create_log(log_name='ERROR.log', console_log=True, level=logging.DEBUG):
     formatter = logging.Formatter('%(asctime)s - %(funcName)s - %(levelname)s - %(message)s', datefmt='%a, %d %b %Y %H:%M:%S')
 
@@ -61,7 +47,7 @@ def create_log(log_name='ERROR.log', console_log=True, level=logging.DEBUG):
 log_name = 'log' + os.sep + 'Error_' + datetime.datetime.now().strftime('%Y%m%d') + '.log'
 logger = create_log(log_name = log_name)
 
-def init_data_csv(datapath='data', temppath='init_file/temp.bak'):
+def init_data_csv(datapath='data'):
     """初始化data目录下的文件，查询news_subscibe表中存在的user_name根据指定的filetype创立data目录下的空文件。
 
        一次性使用函数。
@@ -72,35 +58,33 @@ def init_data_csv(datapath='data', temppath='init_file/temp.bak'):
     file_types = [
         'keyword',
         'email',
+        'manager',
     ]
 
-    user_name_set = set()
-
-    temp_file_list = os.listdir(temppath)
-    for temp_file in temp_file_list:
-        user_name = temp_file.split('_')[0]
-        user_name_set.add(user_name)
-
-    for user_name in user_name_set:
-        sql = "select id, name from b2_user_organizations where name = '%s'" % (user_name)
-        cursor.execute(sql)
-        id_, user_name = cursor.fetchall()[0]
+    sql_username = "select distinct user_name from news_subscibe"
+    cursor.execute(sql_username)
+    res_username = cursor.fetchall()
+    res_username = [un[0] for un in res_username]
+    
+    for i, user_name in enumerate(res_username):
+        user_name_utf = user_name.encode('utf8')
         for file_type in file_types:
-            filename = datapath + os.sep + '%04d_%s_%s.csv' % (id_, to_str(user_name), file_type)
-            fw = open(filename, 'w')
-            fw.close()
+            f_kw = open('%s%s%04d_%s_%s.csv' % (datapath, os.sep, i + 1, user_name_utf, file_type), 'w')
+            f_kw.close()
+        
         
 
 def parse_temp_to_data(temppath='temp', datapath='data', errorpath='error'):
     """将temp文件夹下的数据读入，添加进mysql并把记录写入data文件夹下的记录中。并会把写入记录时的异常情况写入log
 
-       temp文件夹下会有两种文件类型，分为keyword, email. 在文档中分别有相应的命名格式。如果文件命名有误，会跳过这一文件，并写入log
+       temp文件夹下会有三种文件类型，分为keyword, email, manager，在文档中分别有相应的命名格式。如果文件命名有误，会跳过这一文件，并写入log
 
     """
     username_id_dict = {}
     file_types = [
         'keyword',
         'email',
+        'manager',
     ]
 
     temp_file_list = os.listdir(temppath)
@@ -112,22 +96,13 @@ def parse_temp_to_data(temppath='temp', datapath='data', errorpath='error'):
     if len(temp_file_list) == 0:
         raise ValueError("There must be csv files under '%s' folder" %temppath)
 
-#    for data_file in data_file_list:
-#        df_split  = data_file.split('.csv')[0].split('_')
-#        uid       = df_split[0]
-#        user_name = df_split[1]
-#
-#        if user_name not in username_id_dict:
-#            username_id_dict[user_name] = int(uid)
-    
-    sql_userid_dict = "select id, name from b2_user_organizations where id is not null and name is not null"
-    cursor.execute(sql_userid_dict)
-    res_userid = cursor.fetchall()
-    for res in res_userid:
-        id   = to_str(res[0])
-        name = to_str(res[1])
-        username_id_dict[name] = id
-        
+    for data_file in data_file_list:
+        df_split  = data_file.split('.csv')[0].split('_')
+        uid       = df_split[0]
+        user_name = df_split[1]
+
+        if user_name not in username_id_dict:
+            username_id_dict[user_name] = int(uid)
 
     for temp_file in temp_file_list:
         tf = open("%s%s%s" %(temppath, os.sep, temp_file), 'r')
@@ -140,7 +115,7 @@ def parse_temp_to_data(temppath='temp', datapath='data', errorpath='error'):
 
         # if temp file's type is wrong, copy it to error folder
         if file_type not in file_types:
-            logger.critical('temp/%s 文件命名错误，请检查。该文件内容将会被跳过' % temp_file)
+            logger.info('temp/%s 文件命名错误，请检查。该文件内容将会被跳过' % temp_file)
             open('%s%s%s'% (errorpath, os.sep, temp_file), 'w').write(tf.read())
             continue
         
@@ -156,9 +131,9 @@ def parse_temp_to_data(temppath='temp', datapath='data', errorpath='error'):
         else:
             # judge if user_name has uid. If user_name doesn't has uid, the new uid will be created as auto increment
             if user_name not in username_id_dict:
-                logger.critical('temp/%s 客户名错误，请检查。该文件内容将会被跳过。若核实无误，请联系管理员在b2_user_organizations添加字段' % temp_file)
-                open('%s%s%s'% (errorpath, os.sep, temp_file), 'w').write(tf.read())
-                continue
+                max_uid = max(username_id_dict.values())
+                uid_ = max_uid + 1
+                username_id_dict[user_name] = uid_
             else:
                 uid_ = username_id_dict[user_name]
             df  = open("%s%s%04d_%s_%s.csv" % (datapath, os.sep, uid_, user_name, file_type), 'a')
@@ -171,6 +146,8 @@ def parse_temp_to_data(temppath='temp', datapath='data', errorpath='error'):
             rt_contents, error_contents = handle_email_table(uid, user_name, tf_contents)
         elif file_type == 'keyword':
             rt_contents, error_contents = handle_keyword_table(uid, user_name, tf_contents)
+        elif file_type == 'manager':
+            rt_contents, error_contents = handle_manager_table(uid, user_name, tf_contents)
 
         # if has error_contents, write in error_file
         if len(error_contents) > 0:
@@ -210,7 +187,6 @@ def handle_email_table(uid, user_name, contents):
         if operation == ADD_OPERATION:
             sql = "insert into news_user_email (uid, username, recipient, email, type) values"\
                   "(%s, '%s', '%s', '%s', '%s')" % (uid, user_name, recipient, email, type_)
-            logger.debug(sql)
             try:
                 cursor.execute(sql)
             except Exception, e:
@@ -220,7 +196,6 @@ def handle_email_table(uid, user_name, contents):
                 continue
         elif operation == DEL_OPERATION:
             sql = "delete from news_user_email where uid = %s and email = '%s' " % (uid, email)
-            logger.debug(sql)
             try:
                 cursor.execute(sql)
             except Exception, e:
@@ -235,7 +210,7 @@ def handle_email_table(uid, user_name, contents):
 
         rt_contents.append(line_.strip())
 
-    conn.commit()
+    #conn.commit()
     return rt_contents, error_contents
 
 def handle_keyword_table(uid, user_name, contents):
@@ -338,7 +313,6 @@ def handle_keyword_table(uid, user_name, contents):
             else:
                 sql = "insert into news_user_keyword (uid, username, keyword, type, symbol, securityid, institutionid) "\
                      "values (%s, '%s', '%s', %s, '%s', '%s', %s)" %(uid, user_name, key_word, type_, symbol, securityid, institutionid)
-            logger.debug(sql)
             try:
                 cursor.execute(sql)
             except Exception, e:
@@ -349,7 +323,6 @@ def handle_keyword_table(uid, user_name, contents):
 
         elif operation == DEL_OPERATION:
             sql = "delete from news_user_keyword where uid = %s and keyword = '%s' and securityid = '%s'" % (uid, key_word.decode('utf8'), securityid)
-            logger.debug(sql)
             try:
                 cursor.execute(sql)
             except Exception, e:
@@ -364,27 +337,85 @@ def handle_keyword_table(uid, user_name, contents):
 
         rt_contents.append(','.join([operation, key_word, type_, symbol, securityid, str(res_institutionid)]))
 
+    #conn.commit()
+    return rt_contents, error_contents
+
+def handle_manager_table(uid, user_name, contents):
+    """处理manager型文件增删news_user_manager表
+
+       return (rt_contents, error_contents)
+               rt_contents：list. 排除掉出错记录之后，原始记录外加查找到的信息,元素为字符串，依次为'operation,managerid'
+               error_contents：list. 原始记录出错后将会把该条记录外加出错原因加入到error_contents中，元素为字符串，依次为'operation,managerid,error_reason'
+    """
+
+    rt_contents = []    
+    error_contents = []
+
+    for line_ in contents:
+        line = line_.strip().split(',')
+        operation = line[0].upper()
+        is_managerid = True
+        try:
+            managerid = int(line[1])
+        except:
+            is_managerid = False
+            manager_name = line[1]
+
+        if is_managerid == False:
+            sql_mid = "select id, name from b2_user_assist_manager where name = '%s'" % manager_name
+            cursor.execute(sql_mid)
+            res_mid = cursor.fetchall()
+            if len(res_mid) > 0 and res_mid[0][0] is not None:
+                managerid = res_mid[0][0]
+            else:
+                logger.error('Error manager name-%s of username:%s' % (manager_name, user_name))
+                error_contents.append(line_.strip() + ',Error manager name')
+                continue
+        else:
+            sql_mn = "select id, name from b2_user_assist_manager where id = %s" % managerid 
+            cursor.execute(sql_mn)
+            res_mn = cursor.fetchall()
+            if len(res_mn) > 0 and res_mn[0][1] is not None:
+                manager_name = res_mn[0][1].encode('utf8')
+            else:
+                logger.error('Error manager id-%s of username:%s' % (managerid, user_name))
+                error_contents.append(line_.strip() + ',Error manager id')
+                continue
+             
+
+        if operation == ADD_OPERATION:
+            sql = "insert into news_user_manager (uid, username, managerid) values( %s, '%s', %s)" % (uid, user_name, managerid)
+            try:
+                cursor.execute(sql)
+            except Exception, e:
+                logger.info(sql)
+                logger.info(str(e))
+                error_contents.append(line_.strip() + ',' + str(e))
+                continue
+
+        elif operation == DEL_OPERATION:
+            sql = "delete from news_user_manager where uid = %s and managerid = %s " % (uid, managerid)
+            try:
+                cursor.execute(sql)
+            except Exception, e:
+                logger.info(sql)
+                logger.info(str(e))
+                error_contents.append(line_.strip() + ',' + str(e))
+                continue
+        else:
+            logger.info('Error Operation-%s of username:%s' % (operation, user_name))
+            error_contents.append(line_.strip() + ',Error operation')
+            continue
+
+        rt_contents.append(','.join((operation, str(managerid), manager_name)))
+
     conn.commit()
     return rt_contents, error_contents
 
-def find_not_occur(datapath='data'):
-    sql = "select name from b2_user_organizations"
-    cursor.execute(sql)
-    full_names = set([name[0] for name in cursor.fetchall()])
-    
-    data_file_list = os.listdir(datapath)
-    for data_file in data_file_list:
-        df_split  = data_file.split('.csv')[0].split('_')
-        uid       = df_split[0]
-        user_name = df_split[1].decode('utf8')
-      
-        if not user_name in full_names:
-            print user_name.encode('utf8')
-
 if __name__ == '__main__':
     #init_data_csv()
-    #parse_temp_to_data(temppath='init_file/temp.bak')
+    #parse_temp_to_data(temppath='temp.bak')
     parse_temp_to_data(temppath='temp')
-    #find_not_occur()
+
 
     
